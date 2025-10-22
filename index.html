@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sitemap Extender • linea-analytics.com</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>Sitemap Extender</h1>
+  <p>Paste your JSON array below. Each item will be added as <code>https://linea-analytics.com/articles/{folder}/article.html</code>.</p>
+
+  <div>
+    <label for="json">JSON array:</label><br/>
+    <textarea id="json" rows="18" cols="100" placeholder='[ { "title": "...", "folder": "demistify-mmm", "date": "2025-05-14", ... }, ... ]'></textarea>
+  </div>
+
+  <div style="margin-top:10px">
+    <label for="changefreq">Default changefreq for new URLs:</label>
+    <select id="changefreq">
+      <option value="monthly" selected>monthly</option>
+      <option value="weekly">weekly</option>
+      <option value="daily">daily</option>
+      <option value="yearly">yearly</option>
+      <option value="never">never</option>
+    </select>
+    &nbsp;&nbsp;
+    <label for="priority">Default priority for new URLs:</label>
+    <input id="priority" type="number" step="0.1" min="0.0" max="1.0" value="0.7" />
+    &nbsp;&nbsp;
+    <button id="generate">Generate sitemap.xml</button>
+    <button id="copy">Copy to clipboard</button>
+    <a id="download" download="sitemap.xml" href="#">Download</a>
+  </div>
+
+  <h2>Result</h2>
+  <pre id="result" style="white-space:pre-wrap;"></pre>
+
+  <script>
+    // Fixed, provided sitemap.xml (unchanged base)
+    const BASE_SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://linea-analytics.com/</loc>
+        <lastmod>2024-11-27</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>1.0</priority>
+    </url>
+    <url>
+        <loc>https://linea-analytics.com/about</loc>
+        <lastmod>2024-11-27</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://linea-analytics.com/blog</loc>
+        <lastmod>2024-11-27</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.9</priority>
+    </url>
+    <url>
+        <loc>https://linea-analytics.com/full-service</loc>
+        <lastmod>2024-11-27</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
+        <loc>https://linea-analytics.com/measurement-platform</loc>
+        <lastmod>2024-11-27</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+</urlset>`;
+
+    // Updated structure: https://linea-analytics.com/articles/{folder}/article.html
+    const ARTICLES_BASE = "https://linea-analytics.com/articles/";
+
+    function xmlEncode(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+    }
+
+    function toIsoDate(d) {
+      if (!d) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return null;
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, "0");
+      const day = String(dt.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function sanitizeFolder(folder) {
+      if (!folder) return "";
+      let f = String(folder).trim();
+      f = f.replace(/\s+/g, "-").replace(/^\/+|\/+$/g, "");
+      return f;
+    }
+
+    function extractExistingLocs(xmlString) {
+      const locs = new Set();
+      const locRegex = /<loc>([^<]+)<\/loc>/g;
+      let m;
+      while ((m = locRegex.exec(xmlString)) !== null) {
+        locs.add(m[1]);
+      }
+      return locs;
+    }
+
+    function buildUrlBlock(loc, lastmod, changefreq, priority) {
+      const safeLoc = xmlEncode(loc);
+      const lm = xmlEncode(lastmod || "");
+      const cf = xmlEncode(changefreq || "");
+      const pr = xmlEncode(priority != null ? String(priority) : "");
+      return [
+        "    <url>",
+        `        <loc>${safeLoc}</loc>`,
+        `        <lastmod>${lm}</lastmod>`,
+        `        <changefreq>${cf}</changefreq>`,
+        `        <priority>${pr}</priority>`,
+        "    </url>"
+      ].join("\n");
+    }
+
+    function insertBeforeClosingUrlset(xmlString, blocks) {
+      const closingTag = "</urlset>";
+      const idx = xmlString.lastIndexOf(closingTag);
+      if (idx === -1) {
+        return xmlString.trim() + "\n" + blocks.join("\n") + "\n" + closingTag + "\n";
+      }
+      const before = xmlString.slice(0, idx).replace(/\s*$/, "");
+      const after = xmlString.slice(idx);
+      return before + "\n" + blocks.join("\n") + "\n" + after;
+    }
+
+    function generate() {
+      const input = document.getElementById("json").value.trim();
+      const defaultCF = document.getElementById("changefreq").value || "monthly";
+      let defaultPriority = parseFloat(document.getElementById("priority").value);
+      if (isNaN(defaultPriority) || defaultPriority < 0 || defaultPriority > 1) defaultPriority = 0.7;
+
+      const resultEl = document.getElementById("result");
+      resultEl.textContent = "";
+
+      let data;
+      try {
+        data = input ? JSON.parse(input) : [];
+        if (!Array.isArray(data)) throw new Error("JSON is not an array.");
+      } catch (e) {
+        resultEl.textContent = "Error: Could not parse JSON. " + e.message;
+        return;
+      }
+
+      const existingLocs = extractExistingLocs(BASE_SITEMAP);
+      const newBlocks = [];
+      let added = 0, skipped = 0;
+
+      for (const item of data) {
+        const folder = sanitizeFolder(item.folder);
+        const date = toIsoDate(item.date);
+        if (!folder || !date) {
+          skipped++;
+          continue;
+        }
+        const loc = ARTICLES_BASE + encodeURIComponent(folder) + "/article.html";
+        if (existingLocs.has(loc)) {
+          skipped++;
+          continue;
+        }
+        existingLocs.add(loc);
+        newBlocks.push(buildUrlBlock(loc, date, defaultCF, defaultPriority.toFixed(1)));
+        added++;
+      }
+
+      const updated = insertBeforeClosingUrlset(BASE_SITEMAP, newBlocks);
+      const summary = `<!-- Added: ${added} | Skipped: ${skipped} -->\n`;
+      const finalXml = summary + updated;
+
+      resultEl.textContent = finalXml;
+
+      const blob = new Blob([finalXml], { type: "application/xml" });
+      const url = URL.createObjectURL(blob);
+      const dl = document.getElementById("download");
+      dl.href = url;
+
+      window.__latestXml = finalXml;
+    }
+
+    function copyToClipboard() {
+      const text = window.__latestXml || "";
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          () => alert("Copied sitemap.xml to clipboard."),
+          () => fallbackCopy(text)
+        );
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); alert("Copied sitemap.xml to clipboard."); }
+      catch (e) { alert("Copy failed. You can select the text and copy manually."); }
+      finally { document.body.removeChild(ta); }
+    }
+
+    document.getElementById("generate").addEventListener("click", generate);
+    document.getElementById("copy").addEventListener("click", copyToClipboard);
+
+    // Optional: preload your JSON for convenience:
+    const PREFILL = ``; // keep empty by default
+    if (PREFILL.trim()) document.getElementById("json").value = PREFILL.trim();
+  </script>
+</body>
+</html>
