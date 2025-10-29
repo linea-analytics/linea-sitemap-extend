@@ -1,18 +1,23 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <title>Sitemap Extender • linea-analytics.com</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
+    integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
+
 <body>
   <h1>Sitemap Extender</h1>
-  <p>Paste your JSON array below. Each item will be added as <code>https://linea-analytics.com/articles/{folder}/article.html</code>.</p>
+  <p>Paste your JSON array below. Each item will be added as
+    <code>https://linea-analytics.com/articles/{folder}/article.html</code>.</p>
 
   <div>
-    <label for="json">JSON array:</label><br/>
-    <textarea id="json" rows="18" cols="100" placeholder='[ { "title": "...", "folder": "demistify-mmm", "date": "2025-05-14", ... }, ... ]'></textarea>
+    <label for="json">JSON array:</label><br />
+    <textarea id="json" rows="18" cols="100"
+      placeholder='[ { "title": "...", "folder": "demistify-mmm", "date": "2025-05-14", ... }, ... ]'></textarea>
   </div>
 
   <div style="margin-top:10px">
@@ -179,7 +184,10 @@
 
       const updated = insertBeforeClosingUrlset(BASE_SITEMAP, newBlocks);
       const summary = `<!-- Added: ${added} | Skipped: ${skipped} -->\n`;
-      const finalXml = summary + updated;
+      let finalXml = updated.replace(
+        /^<\?xml[^>]*\?>/,
+        m => `${m}\n<!-- Added: ${added} | Skipped: ${skipped} -->`
+      );
 
       resultEl.textContent = finalXml;
 
@@ -222,4 +230,5 @@
     if (PREFILL.trim()) document.getElementById("json").value = PREFILL.trim();
   </script>
 </body>
+
 </html>
